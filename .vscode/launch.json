@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python Debugger: Python Module",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}/..",
+      "args": [
+        "-m",
+        "src.main"
+      ],
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}"
+      }
+    }
+  ]
+}

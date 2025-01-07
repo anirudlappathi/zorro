@@ -1,0 +1,12 @@
+# This is a absolute filepath to the folder that the data collector will save the data.
+ticker_data_folderpath: /Users/anirud/Downloads/projects/crypto-trading-bot/data
+# If the Robinhood API doesn't return any data for a minute, will enter the last minutes data for the current minute to keep the data contiguous
+# True: Interpolates the missing data
+# False: Will leave a hole in the data
+interpolate_missing_data: True
+# These are a list of the tickers that you want to collect every minute for.
+tickers: ["BTC-USD", "ETH-USD", "DOGE-USD", "XRP-USD"]
+
+# This is a hard risk limit in percentage to raise an error if your algorithm is risking too much of your buying power.
+# Set this value to 1 to have no risk limit.
+max_risk: 0.5
