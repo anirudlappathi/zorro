@@ -1,16 +1,18 @@
 from typing import List
 from src.robincrypto import RobinCrypto as rc
 from src.log import log
+import threading
 import talib
+from typing import Dict, Optional
 l = log(__file__)
 
+tickers = ["BTC-USD", "ETH-USD", "XRP-USD", "DOGE-USD"]
 class TestAlgorithm(rc):
 
   def __init__(self):
-    super().__init__(
-      ticker_data_folderpath="/Users/anirud/Downloads/projects/crypto-trading-bot/data",
-      max_risk=1.0,
-    )
+    super().__init__()
+
+    self.in_position: Dict[Optional[threading.Event]] = {ticker: None for ticker in tickers}
 
   def __ao(self, high, low):
     median_price = (high + low) / 2
@@ -20,45 +22,16 @@ class TestAlgorithm(rc):
 
   @rc.run()
   def algo1(self, ticker: str):
-    df = self.get_df(ticker, max=50)
+    df = self.get_df(ticker, max=250)
 
-    if df is None or len(df) < 10:
-      return
-
-    
-    close: float = df["Close"]
-    high_: float = df["High"]
-    low_: float = df["Low"]
-
-    
-    atr_arr = talib.ATR(high_, low_, close, timeperiod=14)
-    atr_val = atr_arr.iloc[-1]
-    atr_val10 = atr_arr.iloc[-10]
-    ema5_val = talib.EMA(close, timeperiod=5).iloc[-1]
-    ema21_val = talib.EMA(close, timeperiod=21).iloc[-1]
-    ema50_val = talib.EMA(close, timeperiod=50).iloc[-1]
-    ema200_val = talib.EMA(close, timeperiod=200).iloc[-1]
-    adx_val = talib.ADX(high_, low_, close, timeperiod=14).iloc[-1]
-    ao_val = self.__ao(high_, low_).iloc[-1]
-    close_val   = close.iloc[-1]
-    b_upper, _, b_lower = talib.BBANDS(close, timeperiod=5, nbdevup=2, nbdevdn=2)
-    upper_val   = b_upper.iloc[-1]
-    lower_val   = b_lower.iloc[-1]
-
-    bb_percent = 0
-    if (upper_val - lower_val) != 0:
-      bb_percent = (close_val - lower_val) / (upper_val - lower_val)
-    if (ema50_val <= ema200_val or
-        ema5_val <= ema21_val or
-        bb_percent < 0.75 or
-        (adx_val is None or adx_val < 15) or
-        (ao_val is None or ao_val < 0.25) or
-        (atr_val <= atr_val10)):
-      return
-    
-    l.info(f"[{ticker}] LONG POSITION")
-    self.long(ticker, risk_percentage=0.2, stop_loss_percent=0.02, take_price_percent=0.01)
+    if df["Close"] >= df["Open"]:
+      if self.in_position[ticker].is_set():
+        self.in_position[ticker] = None
+      if self.in_position[ticker] is None:
+        l.info(f"[{ticker}] LONG POSITION")
+        sold = self.long(ticker, risk_percentage=0.2, stop_loss_percent=0.02, take_price_percent=0.01)
+        self.in_position[ticker] = sold
     
 if __name__ == "__main__":
   ta = TestAlgorithm()
-  ta.algo1(["BTC-USD", "ETH-USD", "XRP-USD", "DOGE-USD"])
+  ta.algo1(tickers)

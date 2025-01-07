@@ -18,15 +18,30 @@ l = log(__file__)
 class RobinCrypto:
 
   def __init__(self, 
-               ticker_data_folderpath: str, 
-               max_risk: float):
+               ticker_data_folderpath: str =None, 
+               max_risk: float=None):
+    if ticker_data_folderpath is None:
+      import yaml
+      with open("data-collection-config.yaml") as stream:
+        try:
+            datacollection_config = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+      if "ticker_data_folderpath" not in datacollection_config or datacollection_config["ticker_data_folderpath"] is None:
+        raise ValueError('"ticker_data_folderpath" is not in the data-collection-config.yaml file. Please enter a valid folderpath or enter an argument for this value.')
+      if "max_risk" not in datacollection_config or datacollection_config["max_risk"] is None:
+        raise ValueError('"max_risk" is not in the data-collection-config.yaml file. Please enter a valid total risk percentage or enter an argument for this value.')
+      self.ticker_data_folderpath = datacollection_config["ticker_data_folderpath"]
+      self.max_risk = datacollection_config["max_risk"]
+    else:
+      self.ticker_data_folderpath = ticker_data_folderpath
+      self.max_risk: float = max_risk
+
     if not os.path.exists(ticker_data_folderpath):
       raise ValueError(f"Folderpath {ticker_data_folderpath} does not exist. Please enter a valid path containing your collected data.")
     if max_risk != 1 and (not isinstance(max_risk, float) or max_risk <= 0):
       raise ValueError("max_risk must be a float of the maximum percent of your buying power you are willing to risk in a single trade.")
-
-    self.ticker_data_folderpath = ticker_data_folderpath
-    self.max_risk: float = max_risk
+    
     self.ct = RobinhoodCryptoAPI()
     self.data = DataCollection(ticker_data_folderpath)
     self.__stop_event = threading.Event()
@@ -60,10 +75,11 @@ class RobinCrypto:
 
   def long(self, 
            ticker: str,
+           single_position=True,
            risk_amount=None,
            risk_percentage=None,
            stop_loss_percent=None, 
-           take_price_percent=None):
+           take_price_percent=None) -> threading.Event():
       if risk_amount is not None and risk_percentage is not None:
         raise ValueError("Must only use either risk_amount or risk_percentage. Cannot utilize both parameters at once.")
       if risk_amount is None and risk_percentage is None:
@@ -86,7 +102,11 @@ class RobinCrypto:
       if risk_amount:
         risk_percentage = risk_amount / buying_power
 
-      threading.Thread(target=self.__long_position, args=(ticker, risk_percentage, stop_loss_percent, take_price_percent, account_data)).start()
+      sold_event = threading.Event()
+
+      threading.Thread(target=self.__long_position, args=(ticker, risk_percentage, stop_loss_percent, take_price_percent, account_data, sold_event)).start()
+
+      return sold_event
 
 
   def __long_position(self, 
@@ -94,10 +114,8 @@ class RobinCrypto:
                       risk_percentage: float, 
                       stop_loss_percent: float, 
                       take_price_percent: float,
-                      account_data: Dict) -> None:
-    if stop_loss_percent < 0 or take_price_percent < 0:
-      l.warn("Stop loss and take price percentages must be greater than 0. Cancelling from long position")
-      return
+                      account_data: Dict,
+                      sold_event: threading.Event) -> None:
     
     close = self.data.get_price_estimate(ticker)
     stop_loss = None
@@ -111,8 +129,6 @@ class RobinCrypto:
     quote_amount = buying_power * risk_percentage
     asset_amount = round(quote_amount / close, 6)
 
-    l.info(f"[{ticker}] [CLOSE: {close}][SL:{stop_loss}][TP:{take_price}][QUOTE_AMT: {quote_amount}][ASSET_AMT: {asset_amount}]")
-
     client_order_id = str(uuid.uuid4())
     order_response = self.ct.place_order(
       client_order_id=client_order_id,
@@ -124,10 +140,18 @@ class RobinCrypto:
       }
     )
 
-    self.__wait_order_fill(ticker, order_response["id"])
+    retry_time = 10
+    while retry_time >= 0:
+      if order_response and "id" in order_response:
+        self.__wait_order_fill(ticker, order_response["id"])
+        break
+      retry_time -= 1
+      time.sleep(2)
+
+    l.info(f"[{ticker}] LONG POSITION FILLED [CLOSE: {close}][SL:{stop_loss}][TP:{take_price}][QUOTE_AMT: {quote_amount}][ASSET_AMT: {asset_amount}]")
 
     if not stop_loss_percent and not take_price_percent:
-      # self.in_position[ticker] = False
+      sold_event.set()
       return
 
     if take_price and not stop_loss:
@@ -143,6 +167,7 @@ class RobinCrypto:
           "time_in_force": "gtc"
         },
       )
+      sold_event.set()
       return
   
     sl_client_order_id = str(uuid.uuid4())
@@ -162,7 +187,6 @@ class RobinCrypto:
 
     while not self.__stop_event.is_set():
       curr_est_price = self.data.get_price_estimate(ticker)
-      l.info("stop_loss: ", stop_loss, "curr_est_price: ", curr_est_price, ", take_price: ", take_price)
 
       stop_loss_status = self.ct.get_order(sl_client_order_id)
       if stop_loss_status.get("status") == "filled":
@@ -183,12 +207,21 @@ class RobinCrypto:
           }
         )
 
+        retry_time = 10
+        while retry_time >= 0:
+          if order_response and "id" in order_response:
+            self.__wait_order_fill(ticker, order_response["id"])
+            break
+          retry_time -= 1
+          time.sleep(2)
+
         self.__wait_order_fill(ticker, take_price_response["id"])
         break
 
       __ticker_signal.wait()
       time.sleep(0.01)
       __ticker_signal.clear()
+      sold_event.set()
 
     # self.in_position[ticker] = False
 

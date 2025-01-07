@@ -380,7 +380,6 @@ class DataCollection:
 if __name__ == "__main__":
   import yaml
 
-  datacollection_config_path = os.path.join(__file__, "data-collection-config.yaml")
   with open("data-collection-config.yaml") as stream:
     try:
         datacollection_config = yaml.safe_load(stream)

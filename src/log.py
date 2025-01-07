@@ -12,9 +12,14 @@ class log:
       raise ValueError("Filename must be a .py file")
 
     load_dotenv()
-    self.is_debug_on = bool(os.getenv("DEBUG"))
-    self.is_warn_on = bool(os.getenv("WARN"))
-    self.is_info_on = bool(os.getenv("INFO"))
+    try: 
+      self.is_debug_on = bool(os.getenv("DEBUG"))
+      self.is_warn_on = bool(os.getenv("WARN"))
+      self.is_info_on = bool(os.getenv("INFO"))
+    except:
+      self.is_debug_on = False
+      self.is_warn_on = False
+      self.is_info_on = False
     self.filename = os.path.basename(filename)
 
   def __datetime_filename(self):
